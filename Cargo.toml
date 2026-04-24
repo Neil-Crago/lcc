@@ -1,0 +1,10 @@
+[package]
+name = "lcc"
+authors = ["Neil Crago <n.j.crago@gmail.com>"]
+description = "Performance Tests for SpaceTCO Linear Conglomerate Calculus (LCC)"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+num-integer = "0.1.46"
+uuid = "1.23.1"
