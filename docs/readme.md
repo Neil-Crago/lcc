@@ -45,16 +45,13 @@ cargo run --release
 
 If using this engine for research, please cite the associated PeerJ manuscript:
 *Crago, N. (2026). A Bipartite Tensor Instruction Set Architecture (ISA) for Deterministic Consensus and Thermal Efficiency in High-Performance Computing.*
+DOI: [10.5281/zenodo.19731832](https://doi.org/10.5281/zenodo.19731832)
+
+You can however cite all versions by using the DOI: [10.5281/zenodo.19728655](https://doi.org/10.5281/zenodo.19728655) as this will always resolve to the latest one.
 
 ## License
 
 MIT
-
-## DOI
-
-DOI: [10.5281/zenodo.19731832](https://doi.org/10.5281/zenodo.19731832)
-  
-You can however cite all versions by using the DOI: [10.5281/zenodo.19728655](https://doi.org/10.5281/zenodo.19728655) as this will always resolve to the latest one.
 
 ---
   
