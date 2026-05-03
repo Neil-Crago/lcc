@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this mathematical framework, tensor architecture, or logic system, please cite it as below."
+authors:
+  - family-names: "Crago"
+    given-names: "Neil"
+    affiliation: "Independent Researcher"
+title: "SpaceTCO Linear Conglomerate Calculus (LCC) Technical Specification"
+version: 1.0.0
+date-released: "2026-04-24"
+url: "https://github.com/Neil-Crago/LCC" 
+doi: "10.5281/zenodo.19731832" 
+abstract: >
+  SpaceTCO's Linear Conglomerate Calculus (LCC) is a groundbreaking mathematical framework designed to replace traditional continuous floating-point matrices with a novel bipartite, self-locking tensor architecture. This technical specification outlines the core principles of LCC, including its dual-layered structure, the Quantized State Finalization Protocol for parameter validation, the Geometric Assembly Law for multi-layer stacking, and the Causal Triage mechanism for handling computational overload. By formalizing these concepts, LCC provides a robust foundation for deterministic computation in physics, artificial intelligence, and complex systems modeling, enabling unprecedented efficiency and resilience in high-dimensional data processing.
+keywords:
+  - Linear Conglomerate Calculus
+  - Bipartite Tensor Architecture
+  - Deterministic Computation
+  - Artificial Intelligence
+  - Quantized State Finalization
+  - Post-von Neumann Architecture
+license: CC-BY-4.0
