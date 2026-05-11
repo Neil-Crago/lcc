@@ -53,5 +53,11 @@ You can however cite all versions by using the DOI: [10.5281/zenodo.19728655](ht
 
 MIT
 
+## Additional Helpful Documentation
+
+[LCC Full Specification v8.0](https://github.com/Neil-Crago/lcc/docs/LCC_Full_Spec_v8.pdf)
+
+[SpaceTCO Architecture](https://github.com/Neil-Crago/spacetco_2/docs/SpaceTCO.pdf)
+
 ---
   
