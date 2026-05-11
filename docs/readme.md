@@ -55,9 +55,9 @@ MIT
 
 ## Additional Helpful Documentation
 
-[LCC Full Specification v9.0](https://github.com/Neil-Crago/lcc/docs/LCC_Full_Spec_v9.pdf)
+[LCC Full Specification v9.0](https://github.com/Neil-Crago/lcc/blob/master/docs/LCC_Full_Spec_v9.pdf)
 
-[SpaceTCO Architecture](https://github.com/Neil-Crago/spacetco_2/docs/SpaceTCO.pdf)
+[SpaceTCO Architecture](https://github.com/Neil-Crago/spacetco_2/blob/master/docs/SpaceTCO.pdf)
 
 ---
   
