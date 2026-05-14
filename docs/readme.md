@@ -1,4 +1,4 @@
-# CrystalEngine 2.0: SpaceTCO LCC Solver
+# CrystalEngine 2.1: SpaceTCO LCC Solver
 
 This repository contains the reference implementation of the **Linear Conglomerate Calculus (LCC)**, a bipartite tensor instruction set architecture (ISA) designed for deterministic consensus and thermal efficiency.
 
@@ -55,7 +55,7 @@ MIT
 
 ## Additional Helpful Documentation
 
-[LCC Full Specification v10.0](https://github.com/Neil-Crago/lcc/blob/master/docs/LCC_Full_Spec_v10.pdf)
+[LCC Full Specification v11.0](https://github.com/Neil-Crago/lcc/blob/master/docs/LCC_Full_Spec_v11.pdf)
 
 [SpaceTCO Architecture](https://github.com/Neil-Crago/spacetco_2/blob/master/docs/SpaceTCO.pdf)
 

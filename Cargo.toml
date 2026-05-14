@@ -8,4 +8,3 @@ license = "MIT"
 
 [dependencies]
 num-integer = "0.1.46"
-uuid = "1.23.1"

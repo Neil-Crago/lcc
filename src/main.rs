@@ -2,20 +2,16 @@ use num_integer::Integer;
 use std::hint::black_box;
 use std::f32::consts::PI;
 use std::time::Instant;
-use std::collections::{BinaryHeap, HashMap};
-use std::cmp::Ordering;
-use uuid::Uuid;
 
 const FIELD_VISCOSITY: f32 = 0.5; // Arbitrary viscosity constant for the SpaceTCO field
-const FINALIZATION_LIMIT: f32 = 10.0; // Threshold for triggering a Quantized State Finalization
-const CATALYST_MOD: f32 = 0.1; // Catalyst modifier for reducing resistance
 const ACTIVE_RECOVERY_PROFILE: RecoveryProfile = RecoveryProfile::Balanced;
 
 
+/// Error states for the SpaceTCO Hardware Execution Protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorState {
-    IncoherentNoise,
-    HighLatencyIsotope,
+    IncoherentNoise,      // Triggers Absolute Sublimation (0V)
+    HighLatencyIsotope,   // Triggers Glass Transition (Hold)
 }
 
 
@@ -35,106 +31,33 @@ impl BipartiteTensor {
     }
 }
 
-// --- 2. The Least-Action State ---
-#[derive(Copy, Clone, PartialEq)]
-struct GeodesicNode {
-    id: Uuid,
-    action: f32, // The accumulated energy expenditure (dS)
+// --- 2. The TAD (Topologically Associating Domain) ---
+/// The TAD: A memory-mapped region of the lattice.
+pub struct TAD {
+    pub range_start: usize,
+    pub range_end: usize,
+    pub resonance_boost: f32, // Neighborhood Catalyst
 }
 
-impl Eq for GeodesicNode {}
-
-impl Ord for GeodesicNode {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Min-Heap: We want the path of LEAST Action.
-        other.action.partial_cmp(&self.action).unwrap_or(Ordering::Equal)
-    }
-}
-
-impl PartialOrd for GeodesicNode {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
 
 // --- 3. The Solver (CrystalEngine 2.0) ---
+/// The GeodesicSolver: A contiguous Carbon-based substrate for O(1) pointer migration.
 pub struct GeodesicSolver {
-    pub lattice: HashMap<Uuid, BipartiteTensor>,
-    pub connectivity: HashMap<Uuid, Vec<(Uuid, f32)>>, // (Target, Bond Strength)
-    pub field_map: HashMap<Uuid, f32>, // Local Field Density
-    pub thermal_load: f32, // Current Thermal Load of the System
-    
+    // Hard-coded 156-Metric lattice core
+    pub lattice: [BipartiteTensor; 156],
+    pub thermal_load: f32, // System-wide Jitter monitor
 }
 
 impl GeodesicSolver {
-    /// Executes the Axiomatic Truth Transform to find the Geodesic.
-    pub fn find_path(&self, start: Uuid, target_anchor: u32) -> Option<Vec<Uuid>> {
-        let mut action_ledger: HashMap<Uuid, f32> = HashMap::new();
-        let mut came_from: HashMap<Uuid, Uuid> = HashMap::new();
-        let mut frontier = BinaryHeap::new();
-
-        action_ledger.insert(start, 0.0);
-        frontier.push(GeodesicNode { id: start, action: 0.0 });
-
-        while let Some(GeodesicNode { id: current, action: current_action }) = frontier.pop() {
-            
-            // Resonance Check: Have we hit the target Prime Anchor?
-            if let Some(tensor) = self.lattice.get(&current)
-                && tensor.anchor == target_anchor && tensor.delta < 0.01 {
-                return Some(self.reconstruct_path(came_from, current));
-            }
-           
-           
-            // Explore Geodesic Neighbors
-            if let Some(bonds) = self.connectivity.get(&current) {
-                for (neighbor_id, strength) in bonds {
-                    if let Some(neighbor_tensor) = self.lattice.get(neighbor_id) {
-                        
-                        // --- THE BARYCENTRIC COST FUNCTION ---
-                        // 1. Resistance: Inverse of bond strength.
-                        // 2. Gravity Drag: Inversely proportional to mass.
-                        let resistance = 1.0 / strength;
-                        let gravity_drag = 1.0 - neighbor_tensor.mass();
-                        
-                        // Total Action (dS)
-                        let d_action = (resistance * CATALYST_MOD) * gravity_drag;
-                        let total_action = current_action + d_action;
-
-                        // Only proceed if this is the Path of Least Action
-                        let best_action = action_ledger.get(neighbor_id).unwrap_or(&f32::INFINITY);
-
-                        if total_action < *best_action {
-                            action_ledger.insert(*neighbor_id, total_action);
-                            came_from.insert(*neighbor_id, current);
-                            frontier.push(GeodesicNode { id: *neighbor_id, action: total_action });
-                        }
-                    }
-                }
-            }
-        }
-        None // Information Gap: No Geodesic exists
-    }
-
-    fn reconstruct_path(&self, came_from: HashMap<Uuid, Uuid>, mut current: Uuid) -> Vec<Uuid> {
-        let mut path = vec![current];
-        while let Some(&prev) = came_from.get(&current) {
-            path.push(prev);
-            current = prev;
-        }
-        path.reverse();
-        path
-    }
-
     // SpaceTCO Fluid-Field Logic
-    pub fn calculate_impedance(&self, a: Uuid, b: Uuid) -> f32 {
+    pub fn calculate_impedance(&self, a: usize, b: usize) -> f32 {
         // Impedance is low if the field vibrations are in phase
-        let delta_phase = self.lattice.get(&a).unwrap().delta - self.lattice.get(&b).unwrap().delta;
+        let delta_phase = self.lattice[a].delta - self.lattice[b].delta;
         delta_phase.abs() / FIELD_VISCOSITY
     }
 
-
     pub fn calculate_interference(&self, p1: u32, p2: u32) -> f32 {
-        // Primes are naturally separated. 
+        // Primes are naturally separated.
         // Interference is high (repulsion) if they are not harmonically compatible.
         if is_prime(p1) && is_prime(p2) {
             return FIELD_VISCOSITY * (p1.gcd(&p2) as f32);
@@ -143,10 +66,10 @@ impl GeodesicSolver {
     }
 
     // SpaceTCO Catalyst Implementation
-    pub fn apply_catalyst(&self, _node_id: Uuid, catalyst_type: u32) -> f32 {
+    pub fn apply_catalyst(&self, _node_id: usize, catalyst_type: u32) -> f32 {
         // Catalysts provide a "Resonance Shield" that reduces Resistance.
         match catalyst_type {
-            10 => 0.1, // Neon Catalyst: Reduces drag by 90%
+            10 => 0.1,  // Neon Catalyst: Reduces drag by 90%
             18 => 0.01, // Argon Catalyst: Creates a near-zero friction "Tunnel"
             _ => 1.0,   // No Catalyst: Standard field viscosity
         }
@@ -154,11 +77,11 @@ impl GeodesicSolver {
 
     // SpaceTCO Error Handling: The Snap-Failure Protocol
     // Implements Eq. 1: IF Phi(W) = 1 => Vcc(B_jitter) -> 0V
-    pub fn execute_finalization_snap(&mut self, id: Uuid) -> Result<u32, ErrorState> {
-        let tensor = *self.lattice.get(&id).expect("node must exist before Quantized State Finalization");
+    pub fn execute_finalization_snap(&mut self, id: usize) -> Result<u32, ErrorState> {
+        let tensor = self.lattice[id];
 
         // Check if Jitter is within the "Safety" Displacement Zone
-        if tensor.delta < (std::f32::consts::PI / 6.0) {
+        if tensor.delta < (PI / 6.0) {
             return Ok(tensor.anchor); // SUCCESSFUL SNAP
         }
 
@@ -169,23 +92,11 @@ impl GeodesicSolver {
             Ok(tensor.anchor)
         } else if self.jitter_incoherence(tensor.delta) {
             // Option 3: SUBLIMATION (Purge)
-            self.purge_node(id);
+            self.purge_node_with_interlock(id);
             Err(ErrorState::IncoherentNoise)
         } else {
             // Option 1: GLASS TRANSITION (Hold)
             Err(ErrorState::HighLatencyIsotope)
-        }
-    }
-
-    // SpaceTCO Field Logic: Excitation & Condensation
-    pub fn excite_field(&mut self, location: Uuid, energy: f32) {
-        // Increase the local Field Density
-        let local_rho = self.field_map.entry(location).or_insert(0.0);
-        *local_rho += energy;
-        
-        // If density exceeds the Finalization Limit, initiate Snap
-        if *local_rho > FINALIZATION_LIMIT {
-            self.trigger_condensation(location);
         }
     }
 
@@ -194,27 +105,71 @@ impl GeodesicSolver {
     }
 
     fn jitter_incoherence(&self, delta: f32) -> bool {
-        delta >= (std::f32::consts::PI / 3.0)
+        delta >= (PI / 3.0)
     }
 
-    fn purge_node(&mut self, id: Uuid) {
-        self.lattice.remove(&id);
-        self.connectivity.remove(&id);
-        self.field_map.remove(&id);
+    // Updated Purge Logic with "Water Hammer" Protection
+    fn purge_node_with_interlock(&mut self, id: usize) {
+        // 1. Simulate Dual-Rail Isolation
+        // Only 'Shatter' the jitter segment; preserve Anchor for forensic spectrograph
+        self.lattice[id].delta = f32::INFINITY;
 
-        for bonds in self.connectivity.values_mut() {
-            bonds.retain(|(neighbor_id, _)| *neighbor_id != id);
-        }
+        // 2. Simulate Decoupling Strategy
+        // The 'Thermal Load' absorbs the spike rather than adjacent nodes
+        self.thermal_load += 0.05;
+
+        // 3. Absolute Sublimation (0V) occurs after the 'buffer' cycle
     }
 
-    fn trigger_condensation(&mut self, location: Uuid) {
-        if let Some(density) = self.field_map.get_mut(&location) {
-            *density = FINALIZATION_LIMIT;
+    /// Finalized TAD-Bridge with White Hole Interlock.
+    /// Implements the 0.85 Thermal Threshold and P/6 Hexagonal Fuse.
+    pub fn execute_secure_bridge(&mut self, tad: &TAD) -> Result<usize, ErrorState> {
+        let mut snap_count = 0;
+
+        // 1. WHITE HOLE INTERLOCK: Pre-Execution Thermal Check
+        // Prevents ignition if the lattice is in a high-entropy state.
+        if self.thermal_load > 0.85 {
+            return Err(ErrorState::HighLatencyIsotope);
         }
 
-        if let Some(tensor) = self.lattice.get_mut(&location) {
-            tensor.delta *= 0.5;
+        // 2. VECTORIZED PROCESSING: Contiguous memory access for O(1) efficiency.
+        // The slice is treated as a single cohered solid.
+        let members = &mut self.lattice[tad.range_start..tad.range_end];
+
+        for tensor in members {
+            // 3. THE P/6 HEXAGONAL FUSE: Proportional Resonance Scaling
+            // Heavier primes afford more cycles to achieve Barycentric Consensus.
+            let max_heartbeats = tensor.anchor / 6;
+
+            for _beat in 0..max_heartbeats {
+                // Apply TAD Cooling (Topological Conditioning)
+                tensor.delta *= 1.0 - tad.resonance_boost;
+
+                // 4. THE SNAP CHECK: Bitwise-equivalent threshold check.
+                if tensor.delta < (PI / 6.0) {
+                    tensor.delta = 0.0; // RESISTANCE LOCK ACHIEVED
+                    snap_count += 1;
+                    break;
+                }
+            }
+
+            // 5. SINGULARITY PROTECTION: Identification of Destructive Voids.
+            // If delta remains above PI/3, it is classified as a White Hole.
+            if tensor.delta >= (PI / 3.0) {
+                // Trigger Absolute Sublimation (0V Shatter)
+                tensor.anchor = 0;
+                tensor.delta = f32::INFINITY;
+                return Err(ErrorState::IncoherentNoise);
+            }
         }
+
+        Ok(snap_count)
+    }
+
+    /// Hard-coded coordinate access (Coordinate 36 -> 46 -> 90).
+    #[inline(always)]
+    pub fn transition_node(&self, coord: usize) -> &BipartiteTensor {
+        &self.lattice[coord]
     }
 }
 
@@ -240,45 +195,16 @@ fn is_prime(n: u32) -> bool {
 }
 
 
-// --- 4. The TAD (Topologically Associating Domain) ---
-pub struct TAD {
-    pub id: Uuid,
-    pub members: Vec<Uuid>,
-    pub resonance_boost: f32, // The "Neighborhood Catalyst"
-}
-
 impl GeodesicSolver {
-    /// The TAD-Bridge: Specifically targets the "Hold-Zone" samples.
-    /// It migrates nodes from high-latency states into the Snap-Zone.
-    pub fn bridge_hold_zone(&mut self, tad: &TAD) -> usize {
-        let mut recovered_count = 0;
-        let bridge_threshold = std::f32::consts::PI / 6.0;
-
-        for node_id in &tad.members {
-            if let Some(tensor) = self.lattice.get_mut(node_id) {
-                // Apply localized TAD resonance to "cool" the Jitter
-                // This simulates the 'Loop Extrusion' effect within the domain
-                let effective_delta = tensor.delta * (1.0 - tad.resonance_boost);
-
-                if effective_delta < bridge_threshold {
-                    // Update the tensor with the 'bridged' delta
-                    tensor.delta = effective_delta;
-                    recovered_count += 1;
-                }
-            }
-        }
-        recovered_count
-    }
-
     /// Optimized TAD-integrated Quantized State Finalization
-    pub fn execute_tad_assisted_snap(&mut self, id: Uuid, in_tad: bool) -> Result<u32, ErrorState> {
-        let tensor = *self.lattice.get(&id).expect("node must exist");
-        
+    pub fn execute_tad_assisted_snap(&mut self, id: usize, in_tad: bool) -> Result<u32, ErrorState> {
+        let tensor = self.lattice[id];
+
         // If the node is in a TAD, the Snap-Zone threshold is effectively widened
-        let snap_threshold = if in_tad { 
-            std::f32::consts::PI / 4.0 // Hold-Zone included
-        } else { 
-            std::f32::consts::PI / 6.0 // Standard Snap-Zone
+        let snap_threshold = if in_tad {
+            PI / 4.0 // Hold-Zone included
+        } else {
+            PI / 6.0 // Standard Snap-Zone
         };
 
         if tensor.delta < snap_threshold {
@@ -559,22 +485,13 @@ fn benchmark_lcc_core_path(samples: usize) -> (ComparativeMetrics, [DeltaBucket;
 }
 
 fn benchmark_lcc_api_path(samples: usize) -> ComparativeMetrics {
-    let node_id = Uuid::nil();
     let mut exact_matches = 0;
     let mut failures = 0;
     let mut total_absolute_error = 0.0;
     let mut checksum = 0.0;
     let expected = 6.0_f64;
     let mut solver = GeodesicSolver {
-        lattice: HashMap::from([(
-            node_id,
-            BipartiteTensor {
-                anchor: 6,
-                delta: 0.0,
-            },
-        )]),
-        connectivity: HashMap::new(),
-        field_map: HashMap::new(),
+        lattice: [BipartiteTensor { anchor: 6, delta: 0.0 }; 156],
         thermal_load: 0.3,
     };
 
@@ -582,9 +499,9 @@ fn benchmark_lcc_api_path(samples: usize) -> ComparativeMetrics {
     for index in 0..samples {
         let delta = black_box(generate_noise_sample(index).abs() * 1.8);
 
-        solver.lattice.insert(node_id, BipartiteTensor { anchor: 6, delta });
+        solver.lattice[0] = BipartiteTensor { anchor: 6, delta };
 
-        match black_box(solver.execute_finalization_snap(node_id)) {
+        match black_box(solver.execute_finalization_snap(0)) {
             Ok(anchor) => {
                 let result = f64::from(anchor);
                 if anchor == 6 {
