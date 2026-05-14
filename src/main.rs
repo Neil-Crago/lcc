@@ -1,164 +1,137 @@
-use num_integer::Integer;
+/// SpaceTCO: LCC Strict Integer Execution Test Code in Rust (CrystalEngine 2.2)
+/// This code simulates the execution of the Linear Conglomerate Calculus (LCC) using a strictly integer-based approach, designed to reflect the constraints of a custom ASIC implementation. The logic engine processes discrete quanta of phase transitions, applying fixed-point arithmetic for all calculations to maintain silicon-native performance. The benchmark generates deterministic noise patterns and categorizes outcomes based on predefined thresholds, demonstrating the robustness of the Water Hammer Protocol in handling thermal loads and incoherent jitter.
+/// To run the benchmark, simply execute the compiled binary. You can specify the number of samples with the `--samples` or `-s` flag (e.g., `lcc --samples 200000`). The output will include the distribution of delta quanta, exact matches, failures, and execution time, providing insights into the behavior of the integer-based LCC under simulated conditions.
+/// Note: This code is intended for benchmarking and demonstration purposes. In a production environment, additional optimizations and safety checks would be necessary, especially when translating to hardware-level RTL code.
+/// Author: Neil Crago
+/// Date: 2024-05-14
+use std::env;
 use std::hint::black_box;
-use std::f32::consts::PI;
 use std::time::Instant;
 
-const FIELD_VISCOSITY: f32 = 0.5; // Arbitrary viscosity constant for the SpaceTCO field
-const ACTIVE_RECOVERY_PROFILE: RecoveryProfile = RecoveryProfile::Balanced;
+// Integer scaling constants used in place of floating point.
+const PI_QUANTA: u32 = 3_141_592; 
+const PPM_SCALE: u32 = 1_000_000;
 
+// Thresholds mapped to discrete integers
+const SNAP_ZONE: u32 = PI_QUANTA / 6;
+const HOLD_ZONE: u32 = PI_QUANTA / 4;
+const SHATTER_ZONE: u32 = PI_QUANTA / 3;
 
-/// Error states for the SpaceTCO Hardware Execution Protocol.
+// Fixed-point thresholds represented in parts per million (PPM).
+const FIELD_VISCOSITY_PPM: u32 = 500_000; // 0.5
+const THERMAL_LIMIT_PPM: u32 = 850_000;   // 0.85
+const THERMAL_SPIKE_PPM: u32 = 50_000;    // 0.05
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorState {
     IncoherentNoise,      // Triggers Absolute Sublimation (0V)
     HighLatencyIsotope,   // Triggers Glass Transition (Hold)
 }
 
-
 // --- 1. The Bipartite Tensor (Hardware-Level Gate Partitioning Layout) ---
 #[derive(Debug, Clone, Copy)]
 pub struct BipartiteTensor {
-    pub anchor: u32,  // Bits 0-31: The Prime Anchor (n)
-    pub delta: f32,   // Bits 32-63: The Jitter Residue (Residual Phase Variance)
+    pub anchor: u32,       // Bits 0-31: The Prime Anchor (n)
+    pub delta_quanta: u32, // Bits 32-63: The Jitter Residue (Discrete Integer)
 }
 
 impl BipartiteTensor {
-    /// Returns the "Mass" (Identity Density) of the node.
-    /// Mass = 1.0 when delta is 0 (Absolute Truth).
-    pub fn mass(&self) -> f32 {
-        let displacement_limit = std::f32::consts::PI / 6.0;
-        (1.0 - (self.delta / displacement_limit)).max(0.0)
+    /// Returns the "Mass" (Identity Density) of the node as a PPM integer.
+    /// Mass = PPM_SCALE when delta_quanta is 0.
+    pub fn mass_ppm(&self) -> u32 {
+        if self.delta_quanta >= SNAP_ZONE {
+            0
+        } else {
+            // Equivalent to: 1 - delta_quanta / SNAP_ZONE in fixed-point form.
+            let reduction = ((self.delta_quanta as u64 * PPM_SCALE as u64) / SNAP_ZONE as u64) as u32;
+            PPM_SCALE.saturating_sub(reduction)
+        }
     }
 }
 
 // --- 2. The TAD (Topologically Associating Domain) ---
-/// The TAD: A memory-mapped region of the lattice.
 pub struct TAD {
     pub range_start: usize,
     pub range_end: usize,
-    pub resonance_boost: f32, // Neighborhood Catalyst
+    pub resonance_boost_ppm: u32, // Neighborhood Catalyst in PPM
 }
 
-
-// --- 3. The Solver (CrystalEngine 2.0) ---
-/// The GeodesicSolver: A contiguous Carbon-based substrate for O(1) pointer migration.
+// --- 3. The Solver (CrystalEngine 2.0 - Integer Edition) ---
 pub struct GeodesicSolver {
-    // Hard-coded 156-Metric lattice core
     pub lattice: [BipartiteTensor; 156],
-    pub thermal_load: f32, // System-wide Jitter monitor
+    pub thermal_load_ppm: u32, 
+    pub has_emitted_thermal_warning: bool,
 }
 
 impl GeodesicSolver {
-    // SpaceTCO Fluid-Field Logic
-    pub fn calculate_impedance(&self, a: usize, b: usize) -> f32 {
-        // Impedance is low if the field vibrations are in phase
-        let delta_phase = self.lattice[a].delta - self.lattice[b].delta;
-        delta_phase.abs() / FIELD_VISCOSITY
+    pub fn calculate_impedance(&self, a: usize, b: usize) -> u32 {
+        let delta_phase = self.lattice[a].delta_quanta.abs_diff(self.lattice[b].delta_quanta);
+        // delta_phase / viscosity, keeping all math in fixed-point.
+        ((delta_phase as u64 * PPM_SCALE as u64) / FIELD_VISCOSITY_PPM as u64) as u32
     }
 
-    pub fn calculate_interference(&self, p1: u32, p2: u32) -> f32 {
-        // Primes are naturally separated.
-        // Interference is high (repulsion) if they are not harmonically compatible.
-        if is_prime(p1) && is_prime(p2) {
-            return FIELD_VISCOSITY * (p1.gcd(&p2) as f32);
-        }
-        0.0 // Composites allow for flow
-    }
-
-    // SpaceTCO Catalyst Implementation
-    pub fn apply_catalyst(&self, _node_id: usize, catalyst_type: u32) -> f32 {
-        // Catalysts provide a "Resonance Shield" that reduces Resistance.
-        match catalyst_type {
-            10 => 0.1,  // Neon Catalyst: Reduces drag by 90%
-            18 => 0.01, // Argon Catalyst: Creates a near-zero friction "Tunnel"
-            _ => 1.0,   // No Catalyst: Standard field viscosity
-        }
-    }
-
-    // SpaceTCO Error Handling: The Snap-Failure Protocol
-    // Implements Eq. 1: IF Phi(W) = 1 => Vcc(B_jitter) -> 0V
     pub fn execute_finalization_snap(&mut self, id: usize) -> Result<u32, ErrorState> {
         let tensor = self.lattice[id];
 
-        // Check if Jitter is within the "Safety" Displacement Zone
-        if tensor.delta < (PI / 6.0) {
-            return Ok(tensor.anchor); // SUCCESSFUL SNAP
+        if tensor.delta_quanta < SNAP_ZONE {
+            return Ok(tensor.anchor);
         }
 
-        // FAILURE: Handle based on Thermal Load
-        if self.thermal_load > 0.85 {
-            // Option 2: SHEAR-OFF (Forced Rounding)
+        if self.thermal_load_ppm > THERMAL_LIMIT_PPM {
             self.emit_thermal_warning();
             Ok(tensor.anchor)
-        } else if self.jitter_incoherence(tensor.delta) {
-            // Option 3: SUBLIMATION (Purge)
+        } else if self.jitter_incoherence(tensor.delta_quanta) {
             self.purge_node_with_interlock(id);
             Err(ErrorState::IncoherentNoise)
         } else {
-            // Option 1: GLASS TRANSITION (Hold)
             Err(ErrorState::HighLatencyIsotope)
         }
     }
 
-    fn emit_thermal_warning(&self) {
-        eprintln!("thermal load exceeded safe operating threshold");
+    fn emit_thermal_warning(&mut self) {
+        if !self.has_emitted_thermal_warning {
+            eprintln!("thermal load exceeded safe operating threshold");
+            self.has_emitted_thermal_warning = true;
+        }
     }
 
-    fn jitter_incoherence(&self, delta: f32) -> bool {
-        delta >= (PI / 3.0)
+    fn jitter_incoherence(&self, delta_quanta: u32) -> bool {
+        delta_quanta >= SHATTER_ZONE
     }
 
-    // Updated Purge Logic with "Water Hammer" Protection
     fn purge_node_with_interlock(&mut self, id: usize) {
-        // 1. Simulate Dual-Rail Isolation
-        // Only 'Shatter' the jitter segment; preserve Anchor for forensic spectrograph
-        self.lattice[id].delta = f32::INFINITY;
-
-        // 2. Simulate Decoupling Strategy
-        // The 'Thermal Load' absorbs the spike rather than adjacent nodes
-        self.thermal_load += 0.05;
-
-        // 3. Absolute Sublimation (0V) occurs after the 'buffer' cycle
+        // u32::MAX represents Absolute Sublimation / Infinity
+        self.lattice[id].delta_quanta = u32::MAX;
+        self.thermal_load_ppm = self.thermal_load_ppm.saturating_add(THERMAL_SPIKE_PPM);
     }
 
-    /// Finalized TAD-Bridge with White Hole Interlock.
-    /// Implements the 0.85 Thermal Threshold and P/6 Hexagonal Fuse.
     pub fn execute_secure_bridge(&mut self, tad: &TAD) -> Result<usize, ErrorState> {
         let mut snap_count = 0;
 
-        // 1. WHITE HOLE INTERLOCK: Pre-Execution Thermal Check
-        // Prevents ignition if the lattice is in a high-entropy state.
-        if self.thermal_load > 0.85 {
+        if self.thermal_load_ppm > THERMAL_LIMIT_PPM {
             return Err(ErrorState::HighLatencyIsotope);
         }
 
-        // 2. VECTORIZED PROCESSING: Contiguous memory access for O(1) efficiency.
-        // The slice is treated as a single cohered solid.
         let members = &mut self.lattice[tad.range_start..tad.range_end];
 
         for tensor in members {
-            // 3. THE P/6 HEXAGONAL FUSE: Proportional Resonance Scaling
-            // Heavier primes afford more cycles to achieve Barycentric Consensus.
             let max_heartbeats = tensor.anchor / 6;
 
             for _beat in 0..max_heartbeats {
-                // Apply TAD Cooling (Topological Conditioning)
-                tensor.delta *= 1.0 - tad.resonance_boost;
+                // Apply TAD Cooling via integer arithmetic
+                let reduction = ((tensor.delta_quanta as u64 * tad.resonance_boost_ppm as u64) / PPM_SCALE as u64) as u32;
+                tensor.delta_quanta = tensor.delta_quanta.saturating_sub(reduction);
 
-                // 4. THE SNAP CHECK: Bitwise-equivalent threshold check.
-                if tensor.delta < (PI / 6.0) {
-                    tensor.delta = 0.0; // RESISTANCE LOCK ACHIEVED
+                if tensor.delta_quanta < SNAP_ZONE {
+                    tensor.delta_quanta = 0; 
                     snap_count += 1;
                     break;
                 }
             }
 
-            // 5. SINGULARITY PROTECTION: Identification of Destructive Voids.
-            // If delta remains above PI/3, it is classified as a White Hole.
-            if tensor.delta >= (PI / 3.0) {
-                // Trigger Absolute Sublimation (0V Shatter)
+            if tensor.delta_quanta >= SHATTER_ZONE {
                 tensor.anchor = 0;
-                tensor.delta = f32::INFINITY;
+                tensor.delta_quanta = u32::MAX;
                 return Err(ErrorState::IncoherentNoise);
             }
         }
@@ -166,545 +139,124 @@ impl GeodesicSolver {
         Ok(snap_count)
     }
 
-    /// Hard-coded coordinate access (Coordinate 36 -> 46 -> 90).
-    #[inline(always)]
-    pub fn transition_node(&self, coord: usize) -> &BipartiteTensor {
-        &self.lattice[coord]
-    }
 }
 
-
-fn is_prime(n: u32) -> bool {
-    if n <= 1 {
-        return false;
-    }
-    if n <= 3 {
-        return true;
-    }
-    if n.is_multiple_of(2) || n.is_multiple_of(3) {
-        return false;
-    }
-    let mut i = 5;
-    while i * i <= n {
-        if n.is_multiple_of(i) || n.is_multiple_of(i + 2) {
-            return false;
-        }
-        i += 6;
-    }
-    true
+// Deterministic integer-only noise generator for repeatable benchmarks.
+fn generate_noise_quanta(index: usize) -> u32 {
+    let mut x = index as u32 ^ 0x55555555;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    // Modulo against an upper limit to simulate field variance
+    x % (PI_QUANTA * 2) 
 }
 
-
-impl GeodesicSolver {
-    /// Optimized TAD-integrated Quantized State Finalization
-    pub fn execute_tad_assisted_snap(&mut self, id: usize, in_tad: bool) -> Result<u32, ErrorState> {
-        let tensor = self.lattice[id];
-
-        // If the node is in a TAD, the Snap-Zone threshold is effectively widened
-        let snap_threshold = if in_tad {
-            PI / 4.0 // Hold-Zone included
-        } else {
-            PI / 6.0 // Standard Snap-Zone
-        };
-
-        if tensor.delta < snap_threshold {
-            Ok(tensor.anchor)
-        } else {
-            Err(ErrorState::HighLatencyIsotope)
-        }
-    }
-}
-
-#[derive(Debug)]
-struct ComparativeMetrics {
-    label: &'static str,
-    elapsed: std::time::Duration,
-    exact_matches: usize,
-    failures: usize,
-    total_absolute_error: f64,
-    checksum: f64,
-}
+const DEFAULT_BENCH_SAMPLES: usize = 100_000;
 
 #[derive(Debug, Clone, Copy)]
 struct DeltaBucket {
     label: &'static str,
-    min: f32,
-    max: f32,
+    min: u32,
+    max: u32,
     samples: usize,
-    successes: usize,
     failures: usize,
-    total_absolute_error: f64,
 }
 
-const DELTA_BUCKETS: [(f32, f32, &str); 5] = [
-    (0.0, PI / 12.0, "stable"),
-    (PI / 12.0, PI / 6.0, "snap-zone"),
-    (PI / 6.0, PI / 4.0, "hold-zone"),
-    (PI / 4.0, PI / 3.0, "high-jitter"),
-    (PI / 3.0, f32::INFINITY, "incoherent"),
+const DELTA_BUCKETS: [(u32, u32, &str); 5] = [
+    (0, PI_QUANTA / 12, "stable"),
+    (PI_QUANTA / 12, SNAP_ZONE, "snap-zone"),
+    (SNAP_ZONE, HOLD_ZONE, "hold-zone"),
+    (HOLD_ZONE, SHATTER_ZONE, "high-jitter"),
+    (SHATTER_ZONE, u32::MAX, "incoherent"),
 ];
-
-const BENCH_SAMPLES: usize = 1_000_000;
-
-#[derive(Debug, Clone, Copy)]
-enum RecoveryProfile {
-    Conservative,
-    Balanced,
-    Aggressive,
-}
-
-const RECOVERY_PROFILES: [RecoveryProfile; 3] = [
-    RecoveryProfile::Conservative,
-    RecoveryProfile::Balanced,
-    RecoveryProfile::Aggressive,
-];
-
-
-
-fn generate_noise_sample(index: usize) -> f32 {
-    let phase = (index as f32) * 0.013_579;
-    (phase.sin() * 0.45) + (phase.cos() * 0.08)
-}
-
-fn lcc_core_operation(tensor: BipartiteTensor, thermal_load: f32) -> Result<u32, ErrorState> {
-    if tensor.delta < (PI / 6.0) || thermal_load > 0.85 {
-        Ok(tensor.anchor)
-    } else if tensor.delta >= (PI / 3.0) {
-        Err(ErrorState::IncoherentNoise)
-    } else {
-        Err(ErrorState::HighLatencyIsotope)
-    }
-}
 
 fn initialize_delta_buckets() -> [DeltaBucket; 5] {
-    DELTA_BUCKETS.map(|(min, max, label)| DeltaBucket {
-        label,
-        min,
-        max,
-        samples: 0,
-        successes: 0,
-        failures: 0,
-        total_absolute_error: 0.0,
-    })
+    DELTA_BUCKETS.map(|(min, max, label)| DeltaBucket { label, min, max, samples: 0, failures: 0 })
 }
 
-fn update_delta_bucket(buckets: &mut [DeltaBucket; 5], delta: f32, succeeded: bool, absolute_error: f64) {
-    for bucket in buckets {
-        if delta >= bucket.min && delta < bucket.max {
-            bucket.samples += 1;
-            if succeeded {
-                bucket.successes += 1;
-            } else {
-                bucket.failures += 1;
+fn bucket_index_for_delta(delta: u32) -> Option<usize> {
+    DELTA_BUCKETS.iter().position(|(min, max, _)| delta >= *min && delta < *max)
+}
+
+fn benchmark_lcc_integer_path(samples: usize) -> ([DeltaBucket; 5], usize, usize, std::time::Duration) {
+    let mut exact_matches = 0;
+    let mut failures = 0;
+    let mut buckets = initialize_delta_buckets();
+    let mut solver = GeodesicSolver {
+        lattice: [BipartiteTensor { anchor: 6, delta_quanta: 0 }; 156],
+        thermal_load_ppm: 300_000,
+        has_emitted_thermal_warning: false,
+    };
+
+    let start = Instant::now();
+    for index in 0..samples {
+        let delta_quanta = black_box(generate_noise_quanta(index));
+        solver.lattice[0] = BipartiteTensor { anchor: 6, delta_quanta };
+
+        match black_box(solver.execute_finalization_snap(0)) {
+            Ok(anchor) => {
+                if anchor == 6 { exact_matches += 1; }
+                if let Some(idx) = bucket_index_for_delta(delta_quanta) {
+                    buckets[idx].samples += 1;
+                }
             }
-            bucket.total_absolute_error += absolute_error;
-            break;
+            Err(_) => {
+                failures += 1;
+                if let Some(idx) = bucket_index_for_delta(delta_quanta) {
+                    buckets[idx].samples += 1;
+                    buckets[idx].failures += 1;
+                }
+            }
         }
     }
+
+    (buckets, exact_matches, failures, start.elapsed())
 }
 
-fn print_delta_report(buckets: &[DeltaBucket; 5]) {
-    println!("LCC delta distribution:");
-    for bucket in buckets {
-        let average_error = if bucket.samples == 0 {
-            0.0
-        } else {
-            bucket.total_absolute_error / bucket.samples as f64
-        };
+fn parse_samples_from_args() -> usize {
+    let mut args = env::args().skip(1);
+    let mut samples = DEFAULT_BENCH_SAMPLES;
 
+    while let Some(arg) = args.next() {
+        if arg == "--samples" || arg == "-s" {
+            if let Some(value) = args.next() {
+                match value.parse::<usize>() {
+                    Ok(parsed) if parsed > 0 => samples = parsed,
+                    _ => {
+                        eprintln!("Invalid sample count '{value}', using default {DEFAULT_BENCH_SAMPLES}.");
+                    }
+                }
+            } else {
+                eprintln!("Missing value for {arg}, using default {DEFAULT_BENCH_SAMPLES}.");
+            }
+        } else if arg == "--help" || arg == "-h" {
+            println!("Usage: lcc [--samples <positive-integer>]\n       lcc [-s <positive-integer>]");
+            std::process::exit(0);
+        }
+    }
+
+    samples
+}
+
+fn run_integer_comparative_test(samples: usize) {
+    println!("\n--- SpaceTCO : LCC Strict Integer Execution Test ---");
+    let (buckets, exact, failures, elapsed) = benchmark_lcc_integer_path(samples);
+
+    println!(
+        "lcc-core-int over {samples} samples: elapsed={:?}, exact_matches={}, failures={}",
+        elapsed, exact, failures
+    );
+
+    println!("LCC delta distribution (Discrete Quanta):");
+    for bucket in &buckets {
         println!(
-            "  {:>10} [{:.3}, {:.3}): samples={}, successes={}, failures={}, avg_abs_error={:.6}",
-            bucket.label,
-            bucket.min,
-            bucket.max,
-            bucket.samples,
-            bucket.successes,
-            bucket.failures,
-            average_error,
+            "  {:>10} [{}, {}]: samples={}, failures={}",
+            bucket.label, bucket.min, bucket.max, bucket.samples, bucket.failures
         );
     }
 }
 
-fn bucket_index_for_delta(delta: f32) -> Option<usize> {
-    DELTA_BUCKETS
-        .iter()
-        .position(|(min, max, _)| delta >= *min && delta < *max)
-}
-
-fn apply_resonance_recovery(
-    buckets: &mut [DeltaBucket; 5],
-    samples: usize,
-    resonance_boost: f32,
-) -> (usize, usize) {
-    let snap_threshold = PI / 6.0;
-    let mut recovered_hold_zone = 0;
-    let mut recovered_high_jitter = 0;
-
-    for index in 0..samples {
-        let delta = generate_noise_sample(index).abs() * 1.8;
-
-        if delta < snap_threshold {
-            continue;
-        }
-
-        let effective_delta = delta * (1.0 - resonance_boost);
-        if effective_delta >= snap_threshold {
-            continue;
-        }
-
-        if let Some(bucket_index) = bucket_index_for_delta(delta) {
-            let bucket = &mut buckets[bucket_index];
-            if bucket.failures > 0 {
-                bucket.failures -= 1;
-                bucket.successes += 1;
-
-                if bucket_index == 2 {
-                    recovered_hold_zone += 1;
-                } else if bucket_index == 3 {
-                    recovered_high_jitter += 1;
-                }
-            }
-        }
-    }
-
-    (recovered_hold_zone, recovered_high_jitter)
-}
-
-fn adaptive_boost_for_profile(profile: RecoveryProfile, delta: f32, index: usize) -> f32 {
-    let phase = (index as f32) * 0.009_531;
-    let jitter = ((phase.sin() + 1.0) * 0.5) * 0.08;
-
-    match profile {
-        RecoveryProfile::Conservative => {
-            if delta > (PI / 4.0) {
-                0.30 + jitter
-            } else {
-                0.18 + jitter
-            }
-        }
-        RecoveryProfile::Balanced => {
-            if delta > (PI / 4.0) {
-                0.38 + jitter
-            } else {
-                0.26 + jitter
-            }
-        }
-        RecoveryProfile::Aggressive => {
-            if delta > (PI / 4.0) {
-                0.46 + jitter
-            } else {
-                0.34 + jitter
-            }
-        }
-    }
-}
-
-fn profile_name(profile: RecoveryProfile) -> &'static str {
-    match profile {
-        RecoveryProfile::Conservative => "Conservative",
-        RecoveryProfile::Balanced => "Balanced",
-        RecoveryProfile::Aggressive => "Aggressive",
-    }
-}
-
-fn benchmark_float_path(samples: usize) -> ComparativeMetrics {
-    let expected = 6.0_f64;
-    let mut exact_matches = 0;
-    let mut total_absolute_error = 0.0;
-    let mut checksum = 0.0;
-
-    let start = Instant::now();
-    for index in 0..samples {
-        let noise = black_box(generate_noise_sample(index) as f64);
-        let lhs = black_box(2.0_f64 + (noise * 1.0e-9));
-        let rhs = black_box(3.0_f64 + (noise * 1.0e-9));
-        let result = black_box(lhs * rhs);
-        let error = (result - expected).abs();
-
-        if error < 1.0e-12 {
-            exact_matches += 1;
-        }
-
-        total_absolute_error += error;
-        checksum += result;
-    }
-
-    ComparativeMetrics {
-        label: "float-core",
-        elapsed: start.elapsed(),
-        exact_matches,
-        failures: 0,
-        total_absolute_error,
-        checksum,
-    }
-}
-
-fn benchmark_lcc_core_path(samples: usize) -> (ComparativeMetrics, [DeltaBucket; 5]) {
-    let mut exact_matches = 0;
-    let mut failures = 0;
-    let mut total_absolute_error = 0.0;
-    let mut checksum = 0.0;
-    let expected = 6.0_f64;
-    let mut buckets = initialize_delta_buckets();
-
-    let start = Instant::now();
-    for index in 0..samples {
-        let delta = black_box(generate_noise_sample(index).abs() * 1.8);
-        let tensor = BipartiteTensor { anchor: 6, delta };
-
-        match black_box(lcc_core_operation(tensor, 0.3)) {
-            Ok(anchor) => {
-                let result = f64::from(anchor);
-                let absolute_error = (result - expected).abs();
-                if anchor == 6 {
-                    exact_matches += 1;
-                }
-                total_absolute_error += absolute_error;
-                checksum += result;
-                update_delta_bucket(&mut buckets, delta, true, absolute_error);
-            }
-            Err(_) => {
-                failures += 1;
-                total_absolute_error += expected;
-                update_delta_bucket(&mut buckets, delta, false, expected);
-            }
-        }
-    }
-
-    (
-        ComparativeMetrics {
-            label: "lcc-core",
-            elapsed: start.elapsed(),
-            exact_matches,
-            failures,
-            total_absolute_error,
-            checksum,
-        },
-        buckets,
-    )
-}
-
-fn benchmark_lcc_api_path(samples: usize) -> ComparativeMetrics {
-    let mut exact_matches = 0;
-    let mut failures = 0;
-    let mut total_absolute_error = 0.0;
-    let mut checksum = 0.0;
-    let expected = 6.0_f64;
-    let mut solver = GeodesicSolver {
-        lattice: [BipartiteTensor { anchor: 6, delta: 0.0 }; 156],
-        thermal_load: 0.3,
-    };
-
-    let start = Instant::now();
-    for index in 0..samples {
-        let delta = black_box(generate_noise_sample(index).abs() * 1.8);
-
-        solver.lattice[0] = BipartiteTensor { anchor: 6, delta };
-
-        match black_box(solver.execute_finalization_snap(0)) {
-            Ok(anchor) => {
-                let result = f64::from(anchor);
-                if anchor == 6 {
-                    exact_matches += 1;
-                }
-                total_absolute_error += (result - expected).abs();
-                checksum += result;
-            }
-            Err(_) => {
-                failures += 1;
-                total_absolute_error += expected;
-            }
-        }
-    }
-
-    ComparativeMetrics {
-        label: "lcc-api",
-        elapsed: start.elapsed(),
-        exact_matches,
-        failures,
-        total_absolute_error,
-        checksum,
-    }
-}
-
-// Comparative Test: LinAlg vs LCC
-fn run_comparative_test1() {
-    println!("\n--- SpaceTCO : LCC Comparative Test ---");
-    let samples = BENCH_SAMPLES;
-    let float_metrics = benchmark_float_path(samples);
-    let (lcc_core_metrics, delta_buckets) = benchmark_lcc_core_path(samples);
-    let lcc_api_metrics = benchmark_lcc_api_path(samples);
-
-    println!(
-        "{} over {samples} samples: elapsed={:?}, exact_matches={}, avg_abs_error={:.12}, checksum={:.6}",
-        float_metrics.label,
-        float_metrics.elapsed,
-        float_metrics.exact_matches,
-        float_metrics.total_absolute_error / samples as f64,
-        float_metrics.checksum,
-    );
-    println!(
-        "{} over {samples} samples: elapsed={:?}, exact_matches={}, failures={}, avg_abs_error={:.12}, checksum={:.6}",
-        lcc_core_metrics.label,
-        lcc_core_metrics.elapsed,
-        lcc_core_metrics.exact_matches,
-        lcc_core_metrics.failures,
-        lcc_core_metrics.total_absolute_error / samples as f64,
-        lcc_core_metrics.checksum,
-    );
-    println!(
-        "{} over {samples} samples: elapsed={:?}, exact_matches={}, failures={}, avg_abs_error={:.12}, checksum={:.6}",
-        lcc_api_metrics.label,
-        lcc_api_metrics.elapsed,
-        lcc_api_metrics.exact_matches,
-        lcc_api_metrics.failures,
-        lcc_api_metrics.total_absolute_error / samples as f64,
-        lcc_api_metrics.checksum,
-    );
-    print_delta_report(&delta_buckets);
-}
-
-fn run_comparative_test2() {
-    println!("\n--- SpaceTCO : LCC Comparative Test with TAD-Bridge ---");
-    let samples = BENCH_SAMPLES;
-    
-    // 1. Standard Baselines
-    let float_metrics = benchmark_float_path(samples);
-    let (lcc_core_metrics, mut delta_buckets) = benchmark_lcc_core_path(samples);
-
-    // 2. The TAD-Bridge Execution
-    // We isolate the "Hold-Zone" samples (PI/6 to PI/4) and apply a TAD Scaffold
-    println!("\nInitiating TAD-Bridge Scaffolding for Hold-Zone...");
-    
-    let tad_exact_matches_before = lcc_core_metrics.exact_matches;
-    let tad_failures_before = lcc_core_metrics.failures;
-
-    // Simulate the bridge: Apply 25% resonance boost to cool jitter.
-    let resonance_boost = 0.25;
-    let (recovered_hold_zone, recovered_high_jitter) =
-        apply_resonance_recovery(&mut delta_buckets, samples, resonance_boost);
-    let recovered_total = recovered_hold_zone + recovered_high_jitter;
-
-    let tad_exact_matches = tad_exact_matches_before + recovered_total;
-    let tad_failures = tad_failures_before.saturating_sub(recovered_total);
-
-    let baseline_success_rate = (tad_exact_matches_before as f64 / samples as f64) * 100.0;
-    let improved_success_rate = (tad_exact_matches as f64 / samples as f64) * 100.0;
-    let failure_reduction = if tad_failures_before == 0 {
-        0.0
-    } else {
-        (recovered_total as f64 / tad_failures_before as f64) * 100.0
-    };
-
-    // 3. Final Telemetry Output
-    println!("--- Final SpaceTCO : LCC Comparative Report ---");
-    println!(
-        "{} : elapsed={:?}, exact_matches={}",
-        float_metrics.label, float_metrics.elapsed, float_metrics.exact_matches
-    );
-    println!(
-        "{} (baseline) : exact_matches={}, failures={}, success_rate={:.2}%",
-        lcc_core_metrics.label,
-        tad_exact_matches_before,
-        tad_failures_before,
-        baseline_success_rate,
-    );
-    println!(
-        "lcc-tad-bridge : exact_matches={}, failures={}, success_rate={:.2}%",
-        tad_exact_matches,
-        tad_failures,
-        improved_success_rate,
-    );
-    println!(
-        "Recovered total={} (hold-zone={}, high-jitter={}), failure_reduction={:.2}%",
-        recovered_total,
-        recovered_hold_zone,
-        recovered_high_jitter,
-        failure_reduction,
-    );
-    
-    println!("\nPost-TAD Lattice State:");
-    print_delta_report(&delta_buckets);
-}
-
-
-// Volume 16: Adaptive Boundary Recovery
-fn run_maximum_recovery_test() {
-    println!("\n--- SpaceTCO : Maximum Recovery Test ---");
-    let profile = ACTIVE_RECOVERY_PROFILE;
-    let samples = BENCH_SAMPLES;
-    let mut baseline_successes = 0;
-    let mut baseline_failures = 0;
-    let mut recovered_in_round_2 = 0;
-    let mut final_failures = 0;
-    let snap_threshold = PI / 6.0;
-    
-    // Target: High-Jitter [0.785, 1.047) and the remaining Hold-Zone [0.524, 0.785)
-    for index in 0..samples {
-        let delta = generate_noise_sample(index).abs() * 1.8;
-        
-        // Round 1 baseline
-        if delta < snap_threshold {
-            baseline_successes += 1;
-            continue;
-        }
-
-        baseline_failures += 1;
-
-        // Round 2: Adaptive Boundary Optimization
-        // We apply a deterministic "Strobe Catalyst" band so results remain reproducible
-        // while still preserving a realistic tail of unrecovered samples.
-        let adaptive_boost = adaptive_boost_for_profile(profile, delta, index);
-        let effective_delta = delta * (1.0 - adaptive_boost);
-
-        if effective_delta < snap_threshold {
-            recovered_in_round_2 += 1;
-        } else {
-            final_failures += 1;
-        }
-    }
-
-    let final_successes = baseline_successes + recovered_in_round_2;
-    let baseline_success_rate = (baseline_successes as f64 / samples as f64) * 100.0;
-    let final_success_rate = (final_successes as f64 / samples as f64) * 100.0;
-    let failure_reduction = if baseline_failures == 0 {
-        0.0
-    } else {
-        (recovered_in_round_2 as f64 / baseline_failures as f64) * 100.0
-    };
-    
-    println!(
-        "Round 1 baseline: successes={}, failures={}, success_rate={:.2}%",
-        baseline_successes,
-        baseline_failures,
-        baseline_success_rate,
-    );
-    let available_profiles = RECOVERY_PROFILES
-        .iter()
-        .map(|p| profile_name(*p))
-        .collect::<Vec<_>>()
-        .join(", ");
-    println!(
-        "Recovery profile: {} (available: {})",
-        profile_name(profile),
-        available_profiles,
-    );
-    println!(
-        "Round 2 (Adaptive): recovered {} additional nodes (failure reduction={:.2}%).",
-        recovered_in_round_2,
-        failure_reduction,
-    );
-    println!(
-        "Final outcome: successes={}, failures={}, success_rate={:.2}%",
-        final_successes,
-        final_failures,
-        final_success_rate,
-    );
-}
-
 fn main() {
-    run_comparative_test1();    
-    run_comparative_test2();
-    run_maximum_recovery_test();
+    let samples = parse_samples_from_args();
+    run_integer_comparative_test(samples);
 }
-
